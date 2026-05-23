@@ -67,6 +67,9 @@ python --version  # 需要 >= 3.10
 
 ### 3.2 安装依赖
 
+**LeRobot 环境配置**（如果你还没有 LeRobot 环境）：
+参考 [SO-101 教程](https://huggingface.co/docs/lerobot/so101) 完成环境搭建。
+
 ```bash
 # LeRobot 已安装（自定义配置文件已添加）
 # 安装 Piper SDK
