@@ -305,7 +305,7 @@ JOINT_LIMITS_PIPER = {
 
 ```bash
 python path_to_scripts/find_zero_pose.py \
-    --port YOUR_PORT --out zero_pose.json
+    --port /dev/ttyACM0 --out zero_pose.json
 ```
 
 ### 6.2 试运行
