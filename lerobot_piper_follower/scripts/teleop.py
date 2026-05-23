@@ -187,8 +187,8 @@ def main():
             grip_piper = None
             if "gripper" in obs:
                 g = obs["gripper"]
-                # 45% → Piper 0 (闭合), 30% → Piper 100000 (张开)
-                grip_piper = int(clamp((45 - g) * 100000 / 15, 0, 100000))
+                # 42% → Piper 0 (闭合), 30% → Piper 100000 (张开)
+                grip_piper = int(clamp((42 - g) * 100000 / 12, 0, 100000))
                 lines.append(f"  夹爪: {g:.0f}% → Piper {grip_piper//1000}%")
                 if piper_handle and frame % 3 == 0:
                     try:
