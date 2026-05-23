@@ -128,9 +128,9 @@ The port of this MotorsBus is '/dev/ttyACM0'
 
 新舵机默认 ID 通常都是 1。需要给每个舵机分配唯一的 ID（1–7）。
 
-#### 方法一：逐个配置（推荐）
+> ⚠️ **每次只能连接一个舵机**，多个舵机同时在线会冲突。
 
-使用 `lerobot-setup-motors` 命令，每次只连接一个舵机：
+使用 `lerobot-setup-motors` 命令，逐个连接舵机进行配置：
 
 ```bash
 lerobot-setup-motors \
@@ -140,7 +140,7 @@ lerobot-setup-motors \
 
 > 如果遇到 `PermissionError`，先执行 `sudo chmod 666 YOUR_PORT`。
 
-程序从 gripper 开始倒序配置，每次只连一个舵机：
+程序从 gripper 开始倒序配置，每次只连一个舵机，按 Enter 确认：
 
 | 顺序 | 舵机 | 分配 ID |
 |------|------|:-------:|
@@ -161,12 +161,6 @@ Connect the controller board to the 'wrist_roll' motor only and press enter.
 ...
 'shoulder_pan' motor id set to 1
 ```
-
-#### 方法二：多舵机串联同时配置
-
-> 需要外接电源。
-
-将所有舵机串联后接到控制板，上电后运行上述命令。程序会依次检测并配置。
 
 ---
 
