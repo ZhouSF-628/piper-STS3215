@@ -9,16 +9,21 @@
 1. [系统架构](#1-系统架构)
 2. [硬件清单](#2-硬件清单)
 3. [软件环境](#3-软件环境)
-4. [Step 1 — 查找舵机端口](#4-step-1--查找舵机端口)
-5. [Step 2 — 配置舵机 ID](#5-step-2--配置舵机-id)
-6. [Step 3 — 单舵机测试](#6-step-3--单舵机测试)
-7. [Step 4 — 创建自定义机器人配置](#7-step-4--创建自定义机器人配置)
-8. [Step 5 — 安装 Piper SDK](#8-step-5--安装-piper-sdk)
-9. [Step 6 — 探测 Piper 臂关节限位](#9-step-6--探测-piper-臂关节限位)
-10. [Step 7 — 记录外骨骼零位](#10-step-7--记录外骨骼零位)
-11. [Step 8 — 遥操](#11-step-8--遥操)
-12. [全部脚本一览](#12-全部脚本一览)
-13. [排错指南](#13-排错指南)
+4. [外骨骼舵机配置](#4-外骨骼舵机配置)
+   - 4.1 [查找舵机端口](#41-查找舵机端口)
+   - 4.2 [配置舵机 ID](#42-配置舵机-id)
+   - 4.3 [测试舵机通信](#43-测试舵机通信)
+   - 4.4 [创建自定义机器人配置](#44-创建自定义机器人配置)
+5. [Piper 机械臂配置](#5-piper-机械臂配置)
+   - 5.1 [安装 Piper SDK](#51-安装-piper-sdk)
+   - 5.2 [Piper 臂关节限位探测](#52-piper-臂关节限位探测)
+6. [遥操](#6-遥操)
+   - 6.1 [记录外骨骼零位](#61-记录外骨骼零位)
+   - 6.2 [试运行](#62-试运行)
+   - 6.3 [正式遥操](#63-正式遥操)
+   - 6.4 [手动调整映射](#64-手动调整映射)
+7. [全部脚本一览](#7-全部脚本一览)
+8. [排错指南](#8-排错指南)
 
 ---
 
@@ -56,35 +61,26 @@
 
 ### 3.1 Python 环境
 
+参考 [LeRobot SO-101 教程](https://huggingface.co/docs/lerobot/so101) 搭建 LeRobot 开发环境。
+
 ```bash
-# 推荐使用 uv 或 conda 创建 Python 3.12 环境
-# 激活你的 lerobot 环境
-source /home/ubuntu/uv/env/lerobot/bin/activate
+# 激活你的 Python 环境
+source path_to_your_env/bin/activate
 
 # 验证
 python --version  # 需要 >= 3.10
 ```
 
-### 3.2 安装依赖
+### 3.2 安装 Piper SDK
 
-**LeRobot 环境配置**（如果你还没有 LeRobot 环境）：
-参考 [SO-101 教程](https://huggingface.co/docs/lerobot/so101) 完成环境搭建。
+参考 [Piper SDK GitHub](https://github.com/agilexrobotics/piper_sdk/tree/master) 安装。
 
 ```bash
-# LeRobot 已安装（自定义配置文件已添加）
-# 安装 Piper SDK
-uv pip install -e /home/ubuntu/Code/piper_sdk/
-# 或
-pip install -e /home/ubuntu/Code/piper_sdk/
-```
+# 从本地源码安装
+pip install -e path_to_piper_sdk/
 
-验证安装：
-```bash
-python -c "
-from piper_sdk import C_PiperInterface_V2
-from lerobot.motors.feetech import FeetechMotorsBus
-print('环境就绪')
-"
+# 验证
+python -c "from piper_sdk import C_PiperInterface_V2; print('Piper SDK OK')"
 ```
 
 ### 3.3 串口权限
@@ -97,9 +93,21 @@ sudo chmod 666 /dev/ttyACM0
 sudo usermod -a -G dialout $USER
 ```
 
+### 3.4 验证全部依赖
+
+```bash
+python -c "
+from piper_sdk import C_PiperInterface_V2
+from lerobot.motors.feetech import FeetechMotorsBus
+print('环境就绪')
+"
+```
+
 ---
 
-## 4. Step 1 — 查找舵机端口
+## 4. 外骨骼舵机配置
+
+### 4.1 查找舵机端口
 
 ```bash
 lerobot-find-port
@@ -112,104 +120,143 @@ Remove the USB cable from your MotorsBus and press Enter when done.
 The port of this MotorsBus is '/dev/ttyACM0'
 ```
 
-记下端口号（如 `/dev/ttyACM0`）。
+记下端口号（如 `/dev/ttyACM0`），后续步骤中统一称为 `YOUR_PORT`。
 
 ---
 
-## 5. Step 2 — 配置舵机 ID
+### 4.2 配置舵机 ID
 
-> 每次只连接 **一个** 舵机到控制板。
+新舵机默认 ID 通常都是 1。需要给每个舵机分配唯一的 ID（1–7）。
+
+#### 方法一：逐个配置（推荐）
+
+使用 `lerobot-setup-motors` 命令，每次只连接一个舵机：
 
 ```bash
-lerobot-setup-motors --robot.type=piper_follower --robot.port=/dev/ttyACM0
+lerobot-setup-motors \
+    --robot.type=piper_follower \
+    --robot.port=YOUR_PORT
 ```
 
-按提示操作，倒序配置 ID 7 → 1：
+> 如果遇到 `PermissionError`，先执行 `sudo chmod 666 YOUR_PORT`。
 
-| 顺序 | 舵机 | ID |
-|------|------|----|
-| 1 | gripper (夹爪) | 7 |
-| 2 | wrist_roll (腕部旋转) | 6 |
-| 3 | wrist_flex (腕部俯仰) | 5 |
-| 4 | forearm_roll (前臂旋转) | 4 |
-| 5 | elbow_flex (肘部) | 3 |
-| 6 | shoulder_lift (肩部) | 2 |
-| 7 | shoulder_pan (底座) | 1 |
+程序从 gripper 开始倒序配置，每次只连一个舵机：
+
+| 顺序 | 舵机 | 分配 ID |
+|------|------|:-------:|
+| 1 | gripper（夹爪） | 7 |
+| 2 | wrist_roll（腕部旋转） | 6 |
+| 3 | wrist_flex（腕部俯仰） | 5 |
+| 4 | forearm_roll（前臂旋转） | 4 |
+| 5 | elbow_flex（肘部） | 3 |
+| 6 | shoulder_lift（肩部） | 2 |
+| 7 | shoulder_pan（底座） | 1 |
+
+实际运行效果：
+```
+Connect the controller board to the 'gripper' motor only and press enter.
+'gripper' motor id set to 7
+Connect the controller board to the 'wrist_roll' motor only and press enter.
+'wrist_roll' motor id set to 6
+...
+'shoulder_pan' motor id set to 1
+```
+
+#### 方法二：多舵机串联同时配置
+
+> 需要外接电源。
+
+将所有舵机串联后接到控制板，上电后运行上述命令。程序会依次检测并配置。
 
 ---
 
-## 6. Step 3 — 单舵机测试
+### 4.3 测试舵机通信
 
-确认每个舵机能正常通信（无需外接电源，只需 USB）。
+#### 单舵机测试（无需外接电源）
 
 ```bash
-# 测试 ID 1
-python src/lerobot/robots/piper_follower/scripts/test_single_motor.py \
-    --port /dev/ttyACM0 --id 1
+# 测试单个舵机（如 ID 1）
+python path_to_scripts/test_single_motor.py --port YOUR_PORT --id 1
 
-# 测试 ID 1 并转动 45°
-python src/lerobot/robots/piper_follower/scripts/test_single_motor.py \
-    --port /dev/ttyACM0 --id 1 --move 45
+# 测试并转动 45°
+python path_to_scripts/test_single_motor.py --port YOUR_PORT --id 1 --move 45
 
-# 全量测试
+# 逐个测试全部 7 个舵机
 for id in 1 2 3 4 5 6 7; do
     echo "=== ID $id ==="
-    python src/lerobot/robots/piper_follower/scripts/test_single_motor.py \
-        --port /dev/ttyACM0 --id $id
+    python path_to_scripts/test_single_motor.py --port YOUR_PORT --id $id
 done
 ```
 
+#### 多舵机串联测试（需外接电源）
+
+```bash
+# 实时读取全部 7 个舵机角度
+python path_to_scripts/read_realtime.py \
+    --port YOUR_PORT --ids 1 2 3 4 5 6 7
+```
+
 ---
 
-## 7. Step 4 — 创建自定义机器人配置
+### 4.4 创建自定义机器人配置
 
-项目已提供 Piper 外骨骼的自定义配置，文件结构：
+本项目已提供 Piper 外骨骼的自定义 LeRobot 配置，文件结构：
 
 ```
-src/lerobot/robots/piper_follower/
+path_to_lerobot/src/lerobot/robots/piper_follower/
 ├── __init__.py                    # 模块导出
-├── config_piper_follower.py       # 配置类（端口、摄像头）
+├── config_piper_follower.py       # 配置类（端口、摄像头等）
 ├── piper_follower.py              # 机器人实现（7 个 STS3215）
 ├── README.md                      # 本指南
-└── scripts/
-    ├── calibrate.py               # 外骨骼校准（需外接电源）
-    ├── read_positions.py          # 读取一次关节位置
-    ├── read_realtime.py           # 实时读取关节角度
+└── scripts/                       # 全部脚本
     ├── test_single_motor.py       # 单舵机测试
+    ├── read_realtime.py           # 实时读取角度
+    ├── calibrate.py               # 外骨骼校准
     ├── test_movement.py           # 动作测试
-    ├── scan_bus.py                # 扫描总线上所有舵机
+    ├── scan_bus.py                # 扫描总线舵机
     ├── diagnose_gripper.py        # 夹爪诊断
     ├── find_zero_pose.py          # 记录外骨骼零位
     ├── calibrate_piper_arm.py     # 探测 Piper 臂限位
-    ├── compare_angles.py          # 外骨骼 vs Piper 角度对比
     ├── align.py                   # 角度对齐工具
-    └── teleop.py                  # 遥操主程序
+    ├── teleop.py                  # 遥操主程序
+    ├── teleop_v1_stable.py        # 稳定版备份
+    ├── compare_angles.py          # 角度对比
+    └── read_positions.py          # 读取一次位置
 ```
 
-### 关节定义
+#### 关节定义
 
 | 外骨骼舵机 ID | 关节名 | 归一化模式 |
 |:---:|---------|-----------|
-| 1 | `shoulder_pan` | DEGREES |
-| 2 | `shoulder_lift` | DEGREES |
-| 3 | `elbow_flex` | DEGREES |
-| 4 | `forearm_roll` | DEGREES |
-| 5 | `wrist_flex` | DEGREES |
-| 6 | `wrist_roll` | DEGREES |
-| 7 | `gripper` | RANGE_0_100 |
+| 1 | `shoulder_pan`（底座旋转）| DEGREES |
+| 2 | `shoulder_lift`（肩部抬升）| DEGREES |
+| 3 | `elbow_flex`（肘部弯曲）| DEGREES |
+| 4 | `forearm_roll`（前臂旋转）| DEGREES |
+| 5 | `wrist_flex`（腕部俯仰）| DEGREES |
+| 6 | `wrist_roll`（腕部旋转）| DEGREES |
+| 7 | `gripper`（夹爪）| RANGE_0_100 |
 
-如需创建其他机器人的自定义配置，参考 `config_piper_follower.py` 和 `piper_follower.py` 的模板。
+#### 如需创建其他机器人
+
+参考 `config_piper_follower.py` 和 `piper_follower.py` 作为模板，同时需在以下两处注册：
+
+- `path_to_lerobot/src/lerobot/robots/utils.py` → `make_robot_from_config()`
+- `path_to_lerobot/src/lerobot/scripts/lerobot_setup_motors.py` → `COMPATIBLE_DEVICES`
 
 ---
 
-## 8. Step 5 — 安装 Piper SDK
+## 5. Piper 机械臂配置
+
+### 5.1 安装 Piper SDK
+
+参考 [Piper SDK GitHub](https://github.com/agilexrobotics/piper_sdk/tree/master) 完成安装。
 
 ```bash
 # 安装
-pip install -e /home/ubuntu/Code/piper_sdk/
+pip install -e path_to_piper_sdk/
 
 # 激活 CAN 接口
-bash /home/ubuntu/Code/piper_sdk/piper_sdk/can_activate.sh can0 1000000
+bash path_to_piper_sdk/piper_sdk/can_activate.sh can0 1000000
 
 # 验证通信
 python -c "
@@ -224,14 +271,12 @@ print(p.GetArmJointMsgs().joint_state)
 "
 ```
 
----
-
-## 9. Step 6 — 探测 Piper 臂关节限位
+### 5.2 Piper 臂关节限位探测
 
 > 将机械臂切换到手动模式（力矩关闭），可自由掰动。
 
 ```bash
-python src/lerobot/robots/piper_follower/scripts/calibrate_piper_arm.py
+python path_to_scripts/calibrate_piper_arm.py
 ```
 
 操作流程：
@@ -258,50 +303,43 @@ JOINT_LIMITS_PIPER = {
 
 ---
 
-## 10. Step 7 — 记录外骨骼零位
+## 6. 遥操
+
+### 6.1 记录外骨骼零位
 
 穿上外骨骼，摆到自然姿态：
 
 ```bash
-python src/lerobot/robots/piper_follower/scripts/find_zero_pose.py \
-    --port /dev/ttyACM0 --out zero_pose.json
+python path_to_scripts/find_zero_pose.py \
+    --port YOUR_PORT --out zero_pose.json
 ```
 
-这会记录当前各关节角度为"零位"，之后每次启动遥操时以此为基准。
+### 6.2 试运行
 
----
+先试运行确认映射方向正确（不控制机械臂）：
 
-## 11. Step 8 — 遥操
+```bash
+python path_to_scripts/teleop.py --port YOUR_PORT --dry
+```
 
-### 使用前准备
+### 6.3 正式遥操
 
-1. 激活 CAN 接口：`bash .../can_activate.sh can0 1000000`
+```bash
+python path_to_scripts/teleop.py --port YOUR_PORT
+```
+
+**启动前准备：**
+1. 激活 CAN 接口：`bash path_to_piper_sdk/piper_sdk/can_activate.sh can0 1000000`
 2. 给外骨骼舵机总线上电（6-8.4V）
 3. 给 Piper 机械臂上电
 4. 穿戴好外骨骼，把 Piper 臂摆成**相同姿态**
 
-### 试运行（不控制机械臂）
-
-```bash
-/home/ubuntu/uv/env/lerobot/bin/python \
-    src/lerobot/robots/piper_follower/scripts/teleop.py \
-    --port /dev/ttyACM0 --dry
-```
-
-### 正式遥操
-
-```bash
-/home/ubuntu/uv/env/lerobot/bin/python \
-    src/lerobot/robots/piper_follower/scripts/teleop.py \
-    --port /dev/ttyACM0
-```
-
-启动后：
+**启动后：**
 1. 按 Enter 记录零位
-2. 外骨骼角度变化会实时映射到 Piper 臂
-3. 按 `q` 或 Ctrl+C 停止（机械臂保持使能，不会掉落）
+2. 外骨骼角度变化实时映射到 Piper 臂
+3. 按 `q` 或 `Ctrl+C` 停止（机械臂保持使能，不会掉落）
 
-### 手动调整映射
+### 6.4 手动调整映射
 
 编辑 `teleop.py` 中的 `EXO_TO_PIPER_MAP`：
 
@@ -312,22 +350,21 @@ EXO_TO_PIPER_MAP = [
 ]
 ```
 
-- **缩放系数**: 外骨骼转 1° → Piper 转 ?°
-- **反向**: `True` 时角度方向取反
+- **缩放系数**：外骨骼转 1° → Piper 转 ?°
+- **反向**：`True` 时角度方向取反
 
-### 角度对比工具
+其他可调参数：
 
-实时对比外骨骼和 Piper 臂的角度：
-
-```bash
-/home/ubuntu/uv/env/lerobot/bin/python \
-    src/lerobot/robots/piper_follower/scripts/align.py \
-    --port /dev/ttyACM0 --save aligned.json
+```python
+JOINT_LIMITS_PIPER    # Piper 臂关节限位
+DEADZONE = 1.0        # 防抖死区（度）
+FILTER_ALPHA = 0.3    # 低通滤波系数
+LOOP_HZ = 20          # 控制频率
 ```
 
 ---
 
-## 12. 全部脚本一览
+## 7. 全部脚本一览
 
 | 脚本 | 用途 | 需外接电源 |
 |------|------|:----------:|
@@ -344,38 +381,25 @@ EXO_TO_PIPER_MAP = [
 | `teleop.py` | **遥操主程序** | ✅ |
 | `teleop_v1_stable.py` | 遥操 v1 稳定版备份 | ✅ |
 
-### 遥操配置文件
-
-编辑 `teleop.py` 顶部修改：
-
-```python
-JOINT_LIMITS_PIPER    # Piper 臂关节限位（从 calibrate_piper_arm.py 获取）
-EXO_TO_PIPER_MAP      # 外骨骼→Piper 关节映射（缩放/方向）
-DEADZONE = 1.0        # 防抖死区（度）
-FILTER_ALPHA = 0.3    # 低通滤波系数
-LOOP_HZ = 20          # 控制频率
-```
-
 ---
 
-## 13. 排错指南
+## 8. 排错指南
 
 ### 外骨骼通信
 
 | 现象 | 原因 | 解决 |
 |------|------|------|
-| `Permission denied: /dev/ttyACM0` | 无串口权限 | `sudo chmod 666 /dev/ttyACM0` |
+| `Permission denied:` | 无串口权限 | `sudo chmod 666 YOUR_PORT` |
 | `Input voltage error` | 供电不足 | 使用外接电源 6-8.4V |
-| `Incorrect status packet` | 夹爪接触不良 | 检查接线或临时排除夹爪 |
+| `Incorrect status packet` | 夹爪接触不良 | 检查接线 |
 | 角度跳动 | 串口干扰 | 检查 USB 线/供电 |
 
 ### Piper 臂通信
 
 | 现象 | 原因 | 解决 |
 |------|------|------|
-| CAN 不通 | 未激活 | `bash .../can_activate.sh can0 1000000` |
+| CAN 不通 | 未激活 | `bash can_activate.sh can0 1000000` |
 | 关节不动 | 未使能 | `EnablePiper()` 需返回 True |
-| 关节掉电 | 超时保护 | 保持 10Hz+ 控制频率 |
 | 反馈全 0 | 连接断开 | 重新启动 Piper |
 
 ### 遥操问题
@@ -384,33 +408,5 @@ LOOP_HZ = 20          # 控制频率
 |------|------|------|
 | 方向反了 | 映射取反不对 | 改 `EXO_TO_PIPER_MAP` 的 `True/False` |
 | 幅度不对 | 缩放系数 | 改 `scale` 参数 |
-| 抖动 | 噪声 | 增大 `DEADZONE` 或减小 `FILTER_ALPHA` |
-| 响应迟钝 | 频率太低 | 增大 `LOOP_HZ` |
-| 启动时乱动 | 零位偏移 | 先 `--dry` 确认零位正确再正式运行 |
-
----
-
-## 开发者笔记
-
-### 文件结构
-
-```
-src/lerobot/robots/piper_follower/    ← 自定义机器人配置
-src/lerobot/robots/utils.py            ← make_robot_from_config 注册
-src/lerobot/scripts/lerobot_setup_motors.py  ← COMPATIBLE_DEVICES 注册
-```
-
-### CAN 单位
-
-Piper SDK 关节角度单位：**0.001°**（millidegrees）。
-- `JointCtrl` 发送时：`round(角度 * 1000)`
-- `GetArmJointMsgs` 读出时：`原始值 / 1000 = 角度`
-
-### 稳定版备份
-
-`teleop_v1_stable.py` 是经验证可用的遥操版本，如需回退使用：
-
-```bash
-python src/lerobot/robots/piper_follower/scripts/teleop_v1_stable.py \
-    --port /dev/ttyACM0
-```
+| 抖动 | 噪声 | 增大 `DEADZONE`/减小 `FILTER_ALPHA` |
+| 启动时乱动 | 零位偏移 | 先 `--dry` 确认零位正确 |
