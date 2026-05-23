@@ -45,6 +45,10 @@ FILTER_ALPHA = 0.3
 LOOP_HZ = 20
 MILLI_DEG = 1000
 
+# 夹爪映射: 外骨骼 x% → Piper 闭合, y% → Piper 张开
+GRIP_CLOSE_PCT = 42   # 握拳时外骨骼舵机百分比
+GRIP_OPEN_PCT = 30    # 张开时外骨骼舵机百分比
+
 EXO_JOINTS = [
     ("shoulder_pan", 1), ("shoulder_lift", 2), ("elbow_flex", 3),
     ("forearm_roll", 4), ("wrist_flex", 5), ("wrist_roll", 6),
@@ -187,8 +191,9 @@ def main():
             grip_piper = None
             if "gripper" in obs:
                 g = obs["gripper"]
-                # 42% → Piper 0 (闭合), 30% → Piper 100000 (张开)
-                grip_piper = int(clamp((42 - g) * 100000 / 12, 0, 100000))
+                grip_piper = int(clamp(
+                    (GRIP_CLOSE_PCT - g) * 100000 / (GRIP_CLOSE_PCT - GRIP_OPEN_PCT), 0, 100000
+                ))
                 lines.append(f"  夹爪: {g:.0f}% → Piper {grip_piper//1000}%")
                 if piper_handle and frame % 3 == 0:
                     try:
