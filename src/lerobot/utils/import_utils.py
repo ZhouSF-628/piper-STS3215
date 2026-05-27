@@ -1,5 +1,4 @@
-# Vendored minimal version from LeRobot (Apache 2.0)
-# Only the subset used by lerobot.motors.feetech is included.
+# Vendored from LeRobot (Apache 2.0)
 import importlib
 import importlib.metadata
 import logging
@@ -46,7 +45,7 @@ def require_package(pkg_name: str, extra: str, import_name: str | None = None) -
     if not _require_package_cache[cache_key]:
         raise ImportError(
             f"'{pkg_name}' is required but not installed. Install it with: "
-            f"pip install 'lerobot[{extra}]' (or uv pip install 'lerobot[{extra}]')"
+            f"pip install 'lerobot[{extra}]'"
         )
 
 

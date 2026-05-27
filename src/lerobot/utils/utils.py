@@ -1,5 +1,4 @@
-# Vendored minimal version from LeRobot (Apache 2.0)
-# Only the functions used by lerobot.motors.motors_bus are included.
+# Vendored from LeRobot (Apache 2.0)
 import select
 import sys
 import platform

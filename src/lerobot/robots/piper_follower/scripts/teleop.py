@@ -23,8 +23,8 @@ import termios
 import tty
 import time
 
-# 优先使用仓库自带的 vendor 库，避免依赖完整的 LeRobot 安装
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../vendor'))
+# 使用仓库自带的 _vendor 电机控制库（避免依赖完整的 LeRobot 安装）
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
 from lerobot.motors.feetech import FeetechMotorsBus
@@ -48,7 +48,7 @@ EXO_TO_PIPER_MAP = [
 DEADZONE = 1.0               # 死区（度）：小于此值的变化忽略
 FILTER_ALPHA = 0.15           # 低通滤波系数（越小越平滑，但响应变慢）
 RATE_LIMIT = 5.0              # 滑率限制（度/帧）：每周期最大角度变化
-LOOP_HZ = 50                  # 控制循环频率（Hz）
+LOOP_HZ = 80                  # 控制循环频率（Hz）
 MILLI_DEG = 1000
 
 # 夹爪映射: 外骨骼 x% → Piper 闭合, y% → Piper 张开
