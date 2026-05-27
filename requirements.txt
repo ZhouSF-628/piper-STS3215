@@ -1,0 +1,7 @@
+# Piper 外骨骼遥操 — 运行依赖
+# 安装：pip install -r requirements.txt
+
+pyserial>=3.5
+deepdiff>=7.0.1
+tqdm>=4.66.0
+feetech-servo-sdk>=1.0.0

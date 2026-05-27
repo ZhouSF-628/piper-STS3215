@@ -15,11 +15,16 @@ Piper 外骨骼 → Piper 机械臂 遥操
 """
 
 import argparse
+import json
+import os
 import select
 import sys
 import termios
 import tty
 import time
+
+# 优先使用仓库自带的 vendor 库，避免依赖完整的 LeRobot 安装
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../vendor'))
 
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
 from lerobot.motors.feetech import FeetechMotorsBus
@@ -40,9 +45,10 @@ EXO_TO_PIPER_MAP = [
     ("wrist_roll",    1.0, True),   # j5
 ]
 
-DEADZONE = 1.0
-FILTER_ALPHA = 0.3
-LOOP_HZ = 20
+DEADZONE = 1.0               # 死区（度）：小于此值的变化忽略
+FILTER_ALPHA = 0.15           # 低通滤波系数（越小越平滑，但响应变慢）
+RATE_LIMIT = 5.0              # 滑率限制（度/帧）：每周期最大角度变化
+LOOP_HZ = 50                  # 控制循环频率（Hz）
 MILLI_DEG = 1000
 
 # 夹爪映射: 外骨骼 x% → Piper 闭合, y% → Piper 张开
@@ -55,6 +61,9 @@ EXO_JOINTS = [
 ]
 # ======================================
 
+CALIB_DIR = os.path.expanduser("~/.config/piper_teleop")
+CALIB_FILE = os.path.join(CALIB_DIR, "calibration.json")
+
 
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
@@ -64,6 +73,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", default="/dev/ttyACM0")
     parser.add_argument("--dry", action="store_true")
+    parser.add_argument("--calibrate", action="store_true",
+                        help="一次初始化校准：记录外骨骼与机械臂的同步姿态并保存")
     args = parser.parse_args()
 
     # ---- 外骨骼（6 关节 + 夹爪） ----
@@ -78,18 +89,7 @@ def main():
     exo.connect(handshake=False)
     print(" OK")
 
-    input("请将外骨骼和机械臂摆成同一姿态，然后按 Enter...\n")
-
-    # ---- 记录外骨骼零位（含夹爪） ----
-    try:
-        obs0 = exo.sync_read("Present_Position")
-    except Exception:
-        obs0 = {}
-    exo_zero = [obs0.get(name, 0) for name, _ in EXO_JOINTS]
-    grip_zero = obs0.get("gripper", 50.0)
-    print(f"外骨骼零位已记录  (夹爪: {grip_zero:.0f}%)")
-
-    # ---- Piper ----
+    # ---- Piper 连接 ----
     piper_handle = None
     piper_zero = [0] * 6
     if not args.dry:
@@ -101,30 +101,100 @@ def main():
         piper_handle.MotionCtrl_2(0x01, 0x01, 30, 0x00)
         piper_handle.GripperCtrl(0, 1000, 0x01, 0)
         time.sleep(1.0)
-        js = piper_handle.GetArmJointMsgs().joint_state
-        piper_zero = [js.joint_1, js.joint_2, js.joint_3, js.joint_4, js.joint_5, js.joint_6]
-        piper_handle.JointCtrl(*piper_zero)
-        time.sleep(0.3)
         print(" OK")
     else:
         print("【试运行模式】\n")
 
-    # ---- 重新锁定零位 ----
-    print("锁定零位...", end="", flush=True)
-    try:
-        obs_final = exo.sync_read("Present_Position")
-    except Exception:
-        obs_final = {}
-    exo_zero = [obs_final.get(name, 0) for name, _ in EXO_JOINTS]
-    grip_zero = obs_final.get("gripper", grip_zero)
-    if piper_handle:
+    # ---- 初始化校准（--calibrate） ----
+    if args.calibrate:
+        if args.dry:
+            print("错误：校准需要连接真实机械臂，不能与 --dry 同时使用")
+            return
+        print("校准模式：请将外骨骼和机械臂摆成同一姿态...")
+        input("摆好后按 Enter...\n")
         try:
-            js = piper_handle.GetArmJointMsgs().joint_state
-            piper_zero = [js.joint_1, js.joint_2, js.joint_3, js.joint_4, js.joint_5, js.joint_6]
-            piper_handle.JointCtrl(*piper_zero)
+            obs = exo.sync_read("Present_Position")
         except Exception:
-            pass
-    print(" OK\n")
+            obs = {}
+        exo_calib = [obs.get(name, 0) for name, _ in EXO_JOINTS]
+        grip_calib = obs.get("gripper", 50.0)
+        js = piper_handle.GetArmJointMsgs().joint_state
+        piper_calib = [js.joint_1, js.joint_2, js.joint_3, js.joint_4, js.joint_5, js.joint_6]
+        os.makedirs(CALIB_DIR, exist_ok=True)
+        with open(CALIB_FILE, "w") as f:
+            json.dump({"exo": exo_calib, "piper": piper_calib, "gripper": grip_calib}, f)
+        print(f"校准完成 → {CALIB_FILE}")
+        print(f"外骨骼零位: {[f'{v:.1f}' for v in exo_calib]}")
+        print(f"机械臂零位: {[f'{v // 1000}.{v % 1000:03d}' for v in piper_calib]}")
+        print(f"夹爪零位: {grip_calib:.0f}%")
+        piper_handle.DisconnectPort()
+        return
+
+    # ---- 加载校准 ----
+    if args.dry:
+        exo_zero = [0.0] * 6
+        piper_zero = [0] * 6
+        grip_zero = 50.0
+    elif os.path.exists(CALIB_FILE):
+        with open(CALIB_FILE) as f:
+            calib = json.load(f)
+        exo_zero = calib.get("exo", [0.0] * 6)
+        piper_zero = calib.get("piper", [0] * 6)
+        grip_zero = calib.get("gripper", 50.0)
+        print(f"已加载校准 ({CALIB_FILE})  夹爪零位: {grip_zero:.0f}%")
+    else:
+        print("未找到校准文件，请先运行 --calibrate")
+        if piper_handle:
+            piper_handle.DisconnectPort()
+        return
+
+    # ---- 自动追踪：机械臂跟随外骨骼当前姿态 ----
+    if not args.dry:
+        print("自动追踪外骨骼姿态...", end="", flush=True)
+        try:
+            obs = exo.sync_read("Present_Position")
+        except Exception:
+            obs = {}
+        targets = [0] * 6
+        for j, (name, scale, invert) in enumerate(EXO_TO_PIPER_MAP):
+            raw = obs.get(name, exo_zero[j])
+            delta = raw - exo_zero[j]
+            direction = -1 if invert else 1
+            pip_delta = delta * scale * direction
+            pip_target_deg = piper_zero[j] / MILLI_DEG + pip_delta
+            lim = JOINT_LIMITS_PIPER.get(f"j{j}")
+            if lim:
+                pip_target_deg = clamp(pip_target_deg, lim[0], lim[1])
+            targets[j] = round(pip_target_deg * MILLI_DEG)
+        piper_handle.JointCtrl(*targets)
+        if "gripper" in obs:
+            g = obs["gripper"]
+            grip_target = int(clamp(
+                (GRIP_CLOSE_PCT - g) * 100000 / (GRIP_CLOSE_PCT - GRIP_OPEN_PCT), 0, 100000
+            ))
+            piper_handle.GripperCtrl(grip_target, 1000, 0x01, 0)
+        time.sleep(0.5)
+        print(" OK\n")
+
+    # ---- 外骨骼扭矩使能 ----
+    if not args.dry:
+        ok = 0
+        fail = 0
+        for name, _ in EXO_JOINTS:
+            try:
+                exo.enable_torque(motors=name, num_retry=2)
+                ok += 1
+            except Exception:
+                fail += 1
+        try:
+            exo.enable_torque(motors="gripper", num_retry=2)
+            ok += 1
+        except Exception:
+            fail += 1
+        if fail == 0:
+            print(f"外骨骼使能 OK（{ok} 舵机，扭矩常开，松手保持位置）\n")
+        else:
+            print(f"外骨骼使能: {ok} OK, {fail} 失败（检查供电电压）\n")
 
     # ---- 键盘设置 ----
     fd = sys.stdin.fileno()
@@ -144,12 +214,10 @@ def main():
         while True:
             t0 = time.perf_counter()
 
-            # 读外骨骼
             # 读外骨骼（包括夹爪）
             try:
                 obs = exo.sync_read("Present_Position")
             except Exception:
-                # sync_read 失败时，单独读 6 个关节，跳过夹爪
                 obs = {}
                 for n, _ in EXO_JOINTS:
                     try:
@@ -176,6 +244,8 @@ def main():
                 if abs(delta) < DEADZONE:
                     delta = 0.0
                 delta = FILTER_ALPHA * delta + (1 - FILTER_ALPHA) * prev_delta[j]
+                # 滑率限制：每周期变化不超过 RATE_LIMIT°，防止噪声尖峰
+                delta = clamp(delta, prev_delta[j] - RATE_LIMIT, prev_delta[j] + RATE_LIMIT)
                 prev_delta[j] = delta
                 direction = -1 if invert else 1
                 pip_delta = delta * scale * direction
@@ -187,7 +257,14 @@ def main():
                 fb_str = f"{fb_deg[j]:+8.1f}" if fb_deg[j] is not None else "      N/A"
                 lines.append(f"  j{j}  |  {raw:+8.1f}   |  {delta:+8.1f}   |  {pip_target_deg:+8.1f}     |  {fb_str}")
 
-            # 夹爪控制
+            # 发送关节（每帧发送，降低延迟）
+            if piper_handle:
+                try:
+                    piper_handle.JointCtrl(*targets)
+                except Exception:
+                    pass
+
+            # 夹爪控制（每帧发送）
             grip_piper = None
             if "gripper" in obs:
                 g = obs["gripper"]
@@ -195,7 +272,7 @@ def main():
                     (GRIP_CLOSE_PCT - g) * 100000 / (GRIP_CLOSE_PCT - GRIP_OPEN_PCT), 0, 100000
                 ))
                 lines.append(f"  夹爪: {g:.0f}% → Piper {grip_piper//1000}%")
-                if piper_handle and frame % 3 == 0:
+                if piper_handle:
                     try:
                         piper_handle.GripperCtrl(grip_piper, 1000, 0x01, 0)
                     except Exception:
@@ -203,10 +280,17 @@ def main():
             else:
                 lines.append(f"  夹爪: N/A")
 
-            # 发送关节
-            if piper_handle and frame % 2 == 0:
+            # 外骨骼扭矩保持：把当前位置回写 Goal_Position，松手即停
+            if not args.dry and frame % 2 == 0:
                 try:
-                    piper_handle.JointCtrl(*targets)
+                    hold = {}
+                    for name, _ in EXO_JOINTS:
+                        if name in obs:
+                            hold[name] = obs[name]
+                    if "gripper" in obs:
+                        hold["gripper"] = obs["gripper"]
+                    if hold:
+                        exo.sync_write("Goal_Position", hold)
                 except Exception:
                     pass
 

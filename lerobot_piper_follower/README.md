@@ -299,14 +299,18 @@ JOINT_LIMITS_PIPER = {
 
 ## 6. 遥操
 
-### 6.1 记录外骨骼零位
+### 6.1 一次性初始化校准
 
-穿上外骨骼，摆到自然姿态：
+首次使用需要记录外骨骼与机械臂的同步姿态：
+
+1. 穿上外骨骼，把 Piper 臂摆成**相同姿态**
+2. 运行校准命令：
 
 ```bash
-python path_to_scripts/find_zero_pose.py \
-    --port /dev/ttyACM0 --out zero_pose.json
+python path_to_scripts/teleop.py --port YOUR_PORT --calibrate
 ```
+
+校准数据保存到 `~/.config/piper_teleop/calibration.json`，以后无需重复此步骤。
 
 ### 6.2 试运行
 
@@ -326,10 +330,9 @@ python path_to_scripts/teleop.py --port YOUR_PORT
 1. 激活 CAN 接口：`bash path_to_piper_sdk/piper_sdk/can_activate.sh can0 1000000`
 2. 给外骨骼舵机总线上电（6-8.4V）
 3. 给 Piper 机械臂上电
-4. 穿戴好外骨骼，把 Piper 臂摆成**相同姿态**
 
 **启动后：**
-1. 按 Enter 记录零位
+1. 自动加载校准文件，机械臂自动追踪外骨骼当前姿态
 2. 外骨骼角度变化实时映射到 Piper 臂
 3. 按 `q` 或 `Ctrl+C` 停止（机械臂保持使能，不会掉落）
 
@@ -350,10 +353,20 @@ EXO_TO_PIPER_MAP = [
 其他可调参数：
 
 ```python
-JOINT_LIMITS_PIPER    # Piper 臂关节限位
-DEADZONE = 1.0        # 防抖死区（度）
-FILTER_ALPHA = 0.3    # 低通滤波系数
-LOOP_HZ = 20          # 控制频率
+# ── 映射参数 ──
+JOINT_LIMITS_PIPER    # Piper 臂关节限位字典 {关节名: (下限°, 上限°)}
+
+# ── 滤波参数 ──
+DEADZONE = 1.0        # 死区（度）：小于此值的变化忽略
+FILTER_ALPHA = 0.15   # 低通滤波系数（0-1），越小越平滑但响应变慢
+RATE_LIMIT = 5.0      # 滑率限制（度/帧），防止单帧噪声尖峰
+
+# ── 性能参数 ──
+LOOP_HZ = 50          # 控制循环频率（Hz），越高延迟越低
+
+# ── 夹爪映射 ──
+GRIP_CLOSE_PCT = 42   # 握拳时外骨骼舵机百分比
+GRIP_OPEN_PCT = 30    # 张开时外骨骼舵机百分比
 ```
 
 ---
