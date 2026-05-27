@@ -15,7 +15,6 @@ import argparse
 import logging
 import time
 
-from lerobot_piper_follower.vendor.lerobot.
 from lerobot.robots.piper_follower import PiperFollowerConfig
 from lerobot.robots.utils import make_robot_from_config
 

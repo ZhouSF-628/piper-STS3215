@@ -46,10 +46,11 @@ EXO_TO_PIPER_MAP = [
 ]
 
 DEADZONE = 1.0               # 死区（度）：小于此值的变化忽略
-FILTER_ALPHA = 0.15           # 低通滤波系数（越小越平滑，但响应变慢）
+FILTER_ALPHA = 0.5            # 低通滤波系数（0-1）。结合 RATE_LIMIT 防尖峰，不需要过重平滑
 RATE_LIMIT = 5.0              # 滑率限制（度/帧）：每周期最大角度变化
 LOOP_HZ = 80                  # 控制循环频率（Hz）
 MILLI_DEG = 1000
+DISPLAY_EVERY = 8            # 每 N 帧刷新一次显示（控制频率 80Hz 时显示 10Hz）
 
 # 夹爪映射: 外骨骼 x% → Piper 闭合, y% → Piper 张开
 GRIP_CLOSE_PCT = 42   # 握拳时外骨骼舵机百分比
@@ -75,6 +76,8 @@ def main():
     parser.add_argument("--dry", action="store_true")
     parser.add_argument("--calibrate", action="store_true",
                         help="一次初始化校准：记录外骨骼与机械臂的同步姿态并保存")
+    parser.add_argument("--no-display", action="store_true",
+                        help="关闭实时显示，减少终端输出开销")
     args = parser.parse_args()
 
     # ---- 外骨骼（6 关节 + 夹爪） ----
@@ -206,7 +209,8 @@ def main():
     interval = 1.0 / LOOP_HZ
     frame = 0
 
-    print(f"开始遥操 ({LOOP_HZ}Hz)  按 q 退出{' [试运行]' if args.dry else ''}")
+    display_hz = LOOP_HZ // DISPLAY_EVERY if not args.no_display else 0
+    print(f"开始遥操 ({LOOP_HZ}Hz 控制, {display_hz}Hz 显示)  按 q 退出{' [试运行]' if args.dry else ''}")
     header = " 关节  | 外骨骼(°) | 变化量(°) | Piper目标(°) | Piper实际(°)"
     sep = "-" * 55
 
@@ -294,8 +298,9 @@ def main():
                 except Exception:
                     pass
 
-            # 显示
-            print("\033[2J\033[H" + "\n".join(lines), end="", flush=True)
+            # 显示（降低频率减少终端输出对控制循环的影响）
+            if not args.no_display and frame % DISPLAY_EVERY == 0:
+                print("\033[2J\033[H" + "\n".join(lines), end="", flush=True)
 
             # 按键
             if sys.stdin in select.select([sys.stdin], [], [], 0):
