@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 zero_pose.json
 aligned.json
+
+# 遥操采集数据
+teleop_data/
